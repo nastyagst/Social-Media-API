@@ -7,10 +7,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from django.db.models import Count
 from django.db import IntegrityError
+from django.utils.dateparse import parse_datetime
 
 from .models import Post, Comment, Like
 from .serializers import PostSerializer, CommentSerializer
 from .permissions import IsAuthorOrReadOnly
+from .tasks import create_scheduled_post
 
 
 class PostViewSet(viewsets.ModelViewSet):
@@ -30,6 +32,26 @@ class PostViewSet(viewsets.ModelViewSet):
             )
             .order_by("-created_at")
         )
+
+    def create(self, request, *args, **kwargs):
+        scheduled_time = request.data.get("scheduled_time")
+
+        if scheduled_time:
+            eta_time = parse_datetime(scheduled_time)
+
+            create_scheduled_post.apply_async(
+                args=[
+                    request.user.id,
+                    request.data.get("text"),
+                    request.data.get("hashtags", ""),
+                ],
+                eta=eta_time,
+            )
+            return Response(
+                {"detail": f"Post scheduled for {scheduled_time}"},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
