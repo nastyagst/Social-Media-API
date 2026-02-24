@@ -7,6 +7,7 @@ from rest_framework import filters
 from django.db.models import Count
 from django.db import IntegrityError
 from django.utils.dateparse import parse_datetime
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from .models import Post, Comment, Like
 from .serializers import PostSerializer, CommentSerializer
@@ -69,6 +70,10 @@ class PostViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
+    @extend_schema(
+        summary="User Feed",
+        description="Returns posts only from users the current user is following.",
+    )
     @action(
         detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated]
     )
@@ -86,6 +91,13 @@ class PostViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        summary="Like a post",
+        responses={
+            201: OpenApiResponse(description="Post liked."),
+            400: OpenApiResponse(description="You already liked this post.")
+        }
+    )
     @action(
         detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated]
     )
