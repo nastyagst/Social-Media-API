@@ -1,5 +1,4 @@
-from rest_framework import permissions, viewsets
-from rest_framework.response import Response
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -39,18 +38,32 @@ class PostViewSet(viewsets.ModelViewSet):
         if scheduled_time:
             eta_time = parse_datetime(scheduled_time)
 
-            create_scheduled_post.apply_async(
-                args=[
-                    request.user.id,
-                    request.data.get("text"),
-                    request.data.get("hashtags", ""),
-                ],
-                eta=eta_time,
-            )
-            return Response(
-                {"detail": f"Post scheduled for {scheduled_time}"},
-                status=status.HTTP_202_ACCEPTED,
-            )
+            if timezone.is_naive(eta_time):
+                eta_time = timezone.make_aware(eta_time)
+
+            delay_seconds = (eta_time - timezone.now()).total_seconds()
+
+            if delay_seconds > 0:
+                create_scheduled_post.apply_async(
+                    args=[
+                        request.user.id,
+                        request.data.get("text"),
+                        request.data.get("hashtags", ""),
+                    ],
+                    countdown=delay_seconds,
+                )
+                return Response(
+                    {
+                        "detail": f"Post scheduled to be published in {int(delay_seconds)} seconds."
+                    },
+                    status=status.HTTP_202_ACCEPTED,
+                )
+            else:
+                return Response(
+                    {"detail": "Scheduled time must be in the future!"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
